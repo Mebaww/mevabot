@@ -4,10 +4,17 @@
 import { chat }                                      from '../../services/groq.js';
 import { addMessage, getHistory }                    from '../../services/history.js';
 import { formatMemoryContext, extractAndSaveMemories } from '../../services/memory.js';
+import { replySafe }                                 from '../../utils/format.js';
 import { logger }                                    from '../../utils/logger.js';
 import type { Plugin }                               from '../../types/plugin.js';
 
-const BASE_SYSTEM = 'You are a personal assistant. Be direct, concise, and helpful. No filler.';
+const BASE_SYSTEM = `You are a personal assistant. Be direct, concise, and helpful. No filler.
+
+Formatting for Telegram:
+• Put anything the user might need to copy (commands, code, file paths, IDs, URLs, values) in \`inline code\` or \`\`\`code blocks\`\`\` — Telegram allows 1-tap copying on these!
+• Do not use Markdown headers (# or ##); use **bold text** for section titles.
+• Do not use Markdown tables; format structured data with clean bulleted or key-value lists.
+• Use > blockquotes for callouts, caveats, or important notes.`;
 
 export const chatPlugin: Plugin = {
   name: 'chat',
@@ -29,7 +36,7 @@ export const chatPlugin: Plugin = {
       ]);
 
       addMessage(userId, 'assistant', reply);
-      await ctx.reply(reply);
+      await replySafe(ctx, reply);
 
       // Background, non-blocking: extract durable facts if message contained personal info
       // Runs without slowing down the user response
