@@ -1,0 +1,30 @@
+[Unit]
+Description=mevabot — Telegram AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mevabot
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=10
+
+# Run as a dedicated unprivileged user (create with: useradd -r -s /sbin/nologin mevabot)
+User=mevabot
+Group=mevabot
+
+EnvironmentFile=/opt/mevabot/.env
+
+# Security sandbox
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+
+# Allow writing to SQLite database directory
+ReadWritePaths=/opt/mevabot/data
+
+[Install]
+WantedBy=multi-user.target

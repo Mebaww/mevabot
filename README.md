@@ -142,31 +142,31 @@ mevaplus/
 
 ```bash
 # 1. Copy files to your server
-rsync -av --exclude=node_modules --exclude=.env --exclude=dist . user@vps:/opt/mevaplus/
+rsync -av --exclude=node_modules --exclude=.env --exclude=dist --exclude=data . user@vps:/opt/mevabot/
 
 # 2. On the server
-cd /opt/mevaplus
+cd /opt/mevabot
 npm install
 npm run build
 
 # 3. Create a dedicated system user
-sudo useradd -r -s /sbin/nologin mevaplus
-sudo chown -R mevaplus:mevaplus /opt/mevaplus
-sudo chmod 600 /opt/mevaplus/.env
+sudo useradd -r -s /sbin/nologin mevabot
+sudo chown -R mevabot:mevabot /opt/mevabot
+sudo chmod 600 /opt/mevabot/.env
 
 # 4. Install and enable the systemd unit
-sudo cp mevaplus.service /etc/systemd/system/
+sudo cp mevabot.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now mevaplus
+sudo systemctl enable --now mevabot
 
 # 5. Check logs
-sudo journalctl -u mevaplus -f
+sudo journalctl -u mevabot -f
 ```
 
 ## Docker
 
 ```bash
-docker build -t mevaplus .
-docker run -d --env-file .env --name mevaplus mevaplus
+docker build -t mevabot .
+docker run -d --restart unless-stopped -v $(pwd)/data:/app/data --env-file .env --name mevabot mevabot
 ```
 
