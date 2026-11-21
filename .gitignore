@@ -14,3 +14,7 @@ data/
 src/plugins/proposal/
 src/plugins/custom/
 
+# AI agent instructions
+GEMINI.md
+
+
