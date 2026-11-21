@@ -1,2 +1,168 @@
 # mevabot
- A single-owner Telegram bot backed by Groq for fast LLM inference. Built with TypeScript and a plugin system that makes it easy to add, remove, or swap features.
+
+A single-owner Telegram bot backed by [Groq](https://console.groq.com) for fast LLM inference.
+Built with TypeScript and a plugin system that makes it easy to add, remove, or swap features.
+
+## Features
+
+- 💬 Conversational AI with per-session sliding memory
+- 🖥️ VPS status — RAM, Disk, Uptime (plugin)
+- 🔒 Owner-only: all messages from other users are silently dropped
+- 🧩 Plugin system: add new commands by dropping a file
+
+## Stack
+
+| Layer | Choice |
+|---|---|
+| Language | TypeScript 5 (strict) |
+| Runtime | Node.js 22 |
+| Telegram | [grammY](https://grammy.dev) |
+| LLM | [Groq SDK](https://console.groq.com) |
+
+---
+
+## Setup
+
+### 1. Clone & install
+
+```bash
+git clone https://github.com/mebaww/mevabot.git
+cd mevabot
+npm install
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+$EDITOR .env
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | ✅ | From [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_USER_ID` | ✅ | Your numeric Telegram ID |
+| `GROQ_API_KEY` | ✅ | From [console.groq.com](https://console.groq.com) |
+| `GROQ_MODELS` | — | Comma-separated fallback list |
+| `LOG_LEVEL` | — | `debug` / `info` / `warn` / `error` |
+| `NODE_ENV` | — | Set to `production` on your VPS |
+
+### 3. Run
+
+```bash
+npm run dev       # development — restarts on file changes (uses tsx)
+npm run build     # compile TypeScript → dist/
+npm start         # run compiled output
+```
+
+---
+
+## Writing a plugin
+
+```bash
+npm run plugin:new my_feature
+```
+
+This creates `src/plugins/my_feature/index.ts` with the boilerplate ready. Fill in your logic, then register it in [`src/plugins/index.ts`](src/plugins/index.ts). Note: command names use `a-z`, `0-9`, and `_` (no hyphens, per Telegram command rules).
+
+See [`src/plugins/_example/index.ts`](src/plugins/_example/index.ts) for a fully annotated reference.
+
+### Plugin interface
+
+```typescript
+interface Plugin {
+  name: string;
+  commands?: BotCommand[];   // /slash commands
+  onMessage?: MessageHandler; // plain-text catch-all
+}
+
+interface BotCommand {
+  command: string;           // without leading slash
+  description: string;       // shown in Telegram
+  handler: CommandHandler;
+}
+```
+
+### Installing an npm plugin
+
+```bash
+npm install mevaplus-plugin-weather
+```
+
+Then in `src/plugins/index.ts`:
+
+```typescript
+import { weatherPlugin } from 'mevaplus-plugin-weather';
+
+export const plugins: Plugin[] = [
+  // ...
+  weatherPlugin,
+  chatPlugin, // keep last
+];
+```
+
+---
+
+## Project layout
+
+```
+mevaplus/
+├── index.ts                      Entry point — bot wiring
+├── tsconfig.json
+├── scripts/
+│   └── new-plugin.ts             Plugin scaffolding script
+└── src/
+    ├── types/
+    │   └── plugin.ts             Plugin, BotCommand, handler types
+    ├── core/
+    │   └── loader.ts             Registers plugins on the bot instance
+    ├── config.ts                 Validated environment config
+    ├── middleware/
+    │   └── auth.ts               Owner-only gate
+    ├── services/
+    │   ├── groq.ts               Groq client + model fallback
+    │   └── history.ts            Per-user conversation memory
+    ├── utils/
+    │   └── logger.ts             Structured logger (JSON in prod)
+    └── plugins/
+        ├── index.ts              ← Plugin registry (edit to add plugins)
+        ├── _example/             Annotated reference plugin (not registered)
+        ├── clear/                /clear command
+        ├── status/               /status command
+        └── chat/                 Plain-text message handler
+```
+
+---
+
+## VPS deployment (systemd)
+
+```bash
+# 1. Copy files to your server
+rsync -av --exclude=node_modules --exclude=.env --exclude=dist . user@vps:/opt/mevaplus/
+
+# 2. On the server
+cd /opt/mevaplus
+npm install
+npm run build
+
+# 3. Create a dedicated system user
+sudo useradd -r -s /sbin/nologin mevaplus
+sudo chown -R mevaplus:mevaplus /opt/mevaplus
+sudo chmod 600 /opt/mevaplus/.env
+
+# 4. Install and enable the systemd unit
+sudo cp mevaplus.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mevaplus
+
+# 5. Check logs
+sudo journalctl -u mevaplus -f
+```
+
+## Docker
+
+```bash
+docker build -t mevaplus .
+docker run -d --env-file .env --name mevaplus mevaplus
+```
+

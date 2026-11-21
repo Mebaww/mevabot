@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Local / private plugins
+src/plugins/proposal/
+src/plugins/custom/
+

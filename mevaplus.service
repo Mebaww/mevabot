@@ -1,0 +1,26 @@
+[Unit]
+Description=mevaplus — Telegram AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mevaplus
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=10
+
+# Run as a dedicated unprivileged user (create with: useradd -r -s /sbin/nologin mevaplus)
+User=mevaplus
+Group=mevaplus
+
+EnvironmentFile=/opt/mevaplus/.env
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
