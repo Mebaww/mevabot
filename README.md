@@ -5,7 +5,8 @@ Built with TypeScript and a plugin system that makes it easy to add, remove, or 
 
 ## Features
 
-- 💬 Conversational AI with per-session sliding memory
+- 💬 Conversational AI with persistent SQLite session memory (survives restarts)
+- 🧠 Two-tier memory system: automatic long-term user facts & profile persistence
 - 🖥️ VPS status — RAM, Disk, Uptime (plugin)
 - 🔒 Owner-only: all messages from other users are silently dropped
 - 🧩 Plugin system: add new commands by dropping a file
@@ -120,14 +121,17 @@ mevaplus/
     ├── middleware/
     │   └── auth.ts               Owner-only gate
     ├── services/
+    │   ├── db.ts                 Shared SQLite database connection (Node built-in)
     │   ├── groq.ts               Groq client + model fallback
-    │   └── history.ts            Per-user conversation memory
+    │   ├── history.ts            Per-user persistent conversation history
+    │   └── memory.ts             Long-term user memories & background fact extraction
     ├── utils/
     │   └── logger.ts             Structured logger (JSON in prod)
     └── plugins/
         ├── index.ts              ← Plugin registry (edit to add plugins)
         ├── _example/             Annotated reference plugin (not registered)
-        ├── clear/                /clear command
+        ├── clear/                /clear command (resets active session)
+        ├── memory/               /memories, /remember, /forget commands
         ├── status/               /status command
         └── chat/                 Plain-text message handler
 ```
