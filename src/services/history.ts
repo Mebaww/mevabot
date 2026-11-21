@@ -1,29 +1,62 @@
-// Keeps a per-user message history in memory.
-// Want persistence across restarts? Swap the Map for Redis — the API stays the same.
+// Persistent per-user message history backed by SQLite.
+// Chat history survives server and bot restarts.
 
+import { db }           from './db.js';
 import type { Message } from './groq.js';
-import { config } from '../config.js';
-import { logger } from '../utils/logger.js';
+import { config }       from '../config.js';
+import { logger }       from '../utils/logger.js';
 
-const histories = new Map<number, Message[]>();
+const insertStmt = db.prepare(`
+  INSERT INTO messages (user_id, role, content, created_at)
+  VALUES (?, ?, ?, ?)
+`);
 
-function get(userId: number): Message[] {
-  if (!histories.has(userId)) histories.set(userId, []);
-  return histories.get(userId)!;
-}
+const pruneStmt = db.prepare(`
+  DELETE FROM messages
+  WHERE user_id = ?
+    AND id NOT IN (
+      SELECT id FROM messages
+      WHERE user_id = ?
+      ORDER BY id DESC
+      LIMIT ?
+    )
+`);
 
-// Drops the oldest user+assistant pair when the window is full.
+const selectStmt = db.prepare(`
+  SELECT role, content FROM (
+    SELECT id, role, content FROM messages
+    WHERE user_id = ?
+    ORDER BY id DESC
+    LIMIT ?
+  ) ORDER BY id ASC
+`);
+
+const clearStmt = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
+
+/**
+ * Stores a message and trims the window so it doesn't exceed config.chat.maxMessages.
+ */
 export function addMessage(userId: number, role: 'user' | 'assistant', content: string): void {
-  const h = get(userId);
-  h.push({ role, content });
-  while (h.length > config.chat.maxMessages) h.splice(0, 2);
+  insertStmt.run(userId, role, content, Date.now());
+  pruneStmt.run(userId, userId, config.chat.maxMessages);
 }
 
+/**
+ * Retrieves the recent sliding conversation history in chronological order.
+ */
 export function getHistory(userId: number): Message[] {
-  return [...get(userId)];
+  const rows = selectStmt.all(userId, config.chat.maxMessages) as unknown as Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }>;
+
+  return rows.map((r) => ({ role: r.role, content: r.content }));
 }
 
+/**
+ * Deletes all stored conversation messages for the current session.
+ */
 export function clearHistory(userId: number): void {
-  histories.set(userId, []);
-  logger.debug('History cleared', { userId });
+  clearStmt.run(userId);
+  logger.debug('Session messages cleared from SQLite', { userId });
 }

@@ -3,6 +3,13 @@ dist/
 .env
 *.log
 
+# SQLite database files
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Local / private plugins
 src/plugins/proposal/
 src/plugins/custom/
