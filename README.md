@@ -7,9 +7,11 @@ Built with TypeScript and a plugin system that makes it easy to add, remove, or 
 
 - 💬 Conversational AI with persistent SQLite session memory (survives restarts)
 - 🧠 Two-tier memory system: automatic long-term user facts & profile persistence
-- 🖥️ VPS status — RAM, Disk, Uptime (plugin)
+- ⏰ Reminders & alerts: `/remind`, `/reminders`, `/cancel_reminder` + autonomous AI scheduling
+- 📊 Groq API usage: `/groq` real-time token quotas, rate limits, and reset countdowns
+- 🖥️ VPS status: `/status` — RAM, Disk, Uptime
 - 🔒 Owner-only: all messages from other users are silently dropped
-- 🧩 Plugin system: add new commands by dropping a file
+- 🧩 Plugin system: add new commands and AI agentic tools by dropping a file
 
 ## Stack
 
@@ -73,14 +75,26 @@ See [`src/plugins/_example/index.ts`](src/plugins/_example/index.ts) for a fully
 ```typescript
 interface Plugin {
   name: string;
-  commands?: BotCommand[];   // /slash commands
-  onMessage?: MessageHandler; // plain-text catch-all
+  commands?: BotCommand[];     // /slash commands (manual triggers)
+  onMessage?: MessageHandler;  // plain-text catch-all
+  tools?: ToolDefinition[];    // AI agentic tools (autonomous triggers)
 }
 
 interface BotCommand {
-  command: string;           // without leading slash
-  description: string;       // shown in Telegram
+  command: string;             // without leading slash
+  description: string;         // shown in Telegram picker
   handler: CommandHandler;
+}
+
+interface ToolDefinition {
+  name: string;
+  description: string;         // helps the AI decide when to call it
+  parameters: {
+    type: 'object';
+    properties?: Record<string, { type: string; description?: string }>;
+    required?: string[];
+  };
+  execute: (args: Record<string, unknown>) => Promise<string> | string;
 }
 ```
 
@@ -122,18 +136,21 @@ mevaplus/
     │   └── auth.ts               Owner-only gate
     ├── services/
     │   ├── db.ts                 Shared SQLite database connection (Node built-in)
-    │   ├── groq.ts               Groq client + model fallback
+    │   ├── groq.ts               Groq client + model fallback + agentic tools
     │   ├── history.ts            Per-user persistent conversation history
-    │   └── memory.ts             Long-term user memories & background fact extraction
+    │   ├── memory.ts             Long-term user memories & background fact extraction
+    │   └── reminders.ts          Scheduled reminders & timer persistence (SQLite)
     ├── utils/
+    │   ├── format.ts             Telegram-safe HTML formatter with 1-tap copy
     │   └── logger.ts             Structured logger (JSON in prod)
     └── plugins/
         ├── index.ts              ← Plugin registry (edit to add plugins)
         ├── _example/             Annotated reference plugin (not registered)
         ├── clear/                /clear command (resets active session)
         ├── memory/               /memories, /remember, /forget commands
-        ├── status/               /status command
-        └── chat/                 Plain-text message handler
+        ├── status/               /status (VPS) and /groq (API limits) commands
+        ├── remind/               /remind, /reminders, /cancel_reminder commands + scheduler
+        └── chat/                 Plain-text message handler + tool execution
 ```
 
 ---

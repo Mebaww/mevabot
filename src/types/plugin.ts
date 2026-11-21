@@ -1,9 +1,6 @@
 import type { Context, CommandContext, Filter } from 'grammy';
 
-// ctx.match has everything typed after the command name e.g. "/proposal <this part>"
 export type CommandHandler = (ctx: CommandContext<Context>) => Promise<void> | void;
-
-// ctx.message.text is guaranteed non-null at this filter level
 export type MessageHandler = (ctx: Filter<Context, 'message:text'>) => Promise<void> | void;
 
 export interface BotCommand {
@@ -12,8 +9,21 @@ export interface BotCommand {
   handler: CommandHandler;
 }
 
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties?: Record<string, { type: string; description?: string; enum?: string[] }>;
+    required?: string[];
+  };
+  execute: (args: Record<string, unknown>) => Promise<string> | string;
+}
+
 export interface Plugin {
   name: string;
   commands?: BotCommand[];
   onMessage?: MessageHandler;
+  tools?: ToolDefinition[];
+  init?: (bot: import('grammy').Bot) => void | Promise<void>;
 }

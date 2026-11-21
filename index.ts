@@ -7,6 +7,8 @@ import { authMiddleware }            from './src/middleware/auth.js';
 import { loadPlugins, getCommands }  from './src/core/loader.js';
 import { plugins }                   from './src/plugins/index.js';
 
+import { replySafe }                   from './src/utils/format.js';
+
 const bot = new Bot(config.telegram.token);
 
 bot.use(authMiddleware);
@@ -15,12 +17,10 @@ loadPlugins(bot, plugins);
 // /start and /help auto-build from whatever plugins are registered
 bot.command(['start', 'help'], async (ctx) => {
   const lines = getCommands(plugins)
-    .map(({ command, description }) => `\`/${command}\` — ${description}`)
+    .map(({ command, description }) => `/${command} — ${description}`)
     .join('\n');
 
-  await ctx.reply(`*mevaplus*\n\n${lines}\n\nOr just send any message to chat.`, {
-    parse_mode: 'Markdown',
-  });
+  await replySafe(ctx, `**Commands**\n\n${lines}\n\nSend any message to chat.`);
 });
 
 bot.start({

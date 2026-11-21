@@ -34,32 +34,41 @@ export function markdownToTelegramHtml(markdown: string): string {
     return `\uE002${inlineCodes.length - 1}\uE002`;
   });
 
-  // Step 3: Escape HTML entities in surrounding text
+  // Step 3: Preserve existing valid Telegram HTML tags (if already formatted in HTML)
+  const preservedHtmlTags: string[] = [];
+  const telegramTagPattern = /<\/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler|span)(?:\s+[^>]*?)?>|<a(?:\s+[^>]*?)?>|<\/a>/gi;
+  s = s.replace(telegramTagPattern, (tag) => {
+    preservedHtmlTags.push(tag);
+    return `\uE003${preservedHtmlTags.length - 1}\uE003`;
+  });
+
+  // Step 4: Escape HTML entities in surrounding text
   s = escapeHtml(s);
 
-  // Step 4: Convert blockquotes (escaped as &gt;)
+  // Step 5: Convert blockquotes (escaped as &gt;)
   s = s.replace(/^&gt;\s*(.+)$/gm, '<blockquote>$1</blockquote>');
 
-  // Step 5: Convert Markdown headers (# Title, ## Subtitle) to bold headers
+  // Step 6: Convert Markdown headers (# Title, ## Subtitle) to bold headers
   s = s.replace(/^(#{1,6})\s+(.+)$/gm, '<b>$2</b>');
 
-  // Step 6: Convert **bold** and __bold__
+  // Step 7: Convert **bold** and __bold__
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   s = s.replace(/__(.+?)__/g, '<b>$1</b>');
 
-  // Step 7: Convert *italic* and _italic_ (avoiding mid-word underscores like some_var_name)
+  // Step 8: Convert *italic* and _italic_ (avoiding mid-word underscores like some_var_name)
   s = s.replace(/(^|[\s(])\*([^*\n]+)\*([\s)]|$)/g, '$1<i>$2</i>$3');
   s = s.replace(/(^|[\s(])_([^_|\n]+)_([\s)]|$)/g, '$1<i>$2</i>$3');
 
-  // Step 8: Convert strikethrough ~~text~~
+  // Step 9: Convert strikethrough ~~text~~
   s = s.replace(/~~(.+?)~~/g, '<s>$1</s>');
 
-  // Step 9: Convert Markdown links [text](url)
+  // Step 10: Convert Markdown links [text](url)
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
 
-  // Step 10: Restore code blocks and inline code
+  // Step 11: Restore code blocks, inline code, and preserved HTML tags
   s = s.replace(/\uE001(\d+)\uE001/g, (_, i) => codeBlocks[parseInt(i, 10)]);
   s = s.replace(/\uE002(\d+)\uE002/g, (_, i) => inlineCodes[parseInt(i, 10)]);
+  s = s.replace(/\uE003(\d+)\uE003/g, (_, i) => preservedHtmlTags[parseInt(i, 10)]);
 
   return s.trim();
 }
