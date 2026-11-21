@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
 jobs:
   deploy:
@@ -34,6 +35,15 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Ensure rsync is installed on VPS
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            if ! command -v rsync &> /dev/null; then
+              echo "Installing rsync..."
+              apt-get update && apt-get install -y rsync
+            fi
+          EOF
+
       - name: Deploy files to VPS via rsync
         run: |
           # Sync files to /opt/mevabot (preserving .env and data/ database)
@@ -50,15 +60,14 @@ jobs:
             cd /opt/mevabot
             npm ci --omit=dev
             
-            # Ensure permissions are correct
+            # Ensure dedicated service user and directory permissions
             id -u mevabot &>/dev/null || useradd -r -s /sbin/nologin mevabot
-            chown -R mevabot:mevabot /opt/mevabot
             mkdir -p /opt/mevabot/data
-            chown -R mevabot:mevabot /opt/mevabot/data
+            chown -R mevabot:mevabot /opt/mevabot
             chmod 700 /opt/mevabot/data
             [ -f /opt/mevabot/.env ] && chmod 600 /opt/mevabot/.env
 
-            # Copy systemd service if changed and restart
+            # Copy systemd service unit and restart
             cp /opt/mevabot/mevabot.service /etc/systemd/system/
             systemctl daemon-reload
             systemctl enable mevabot
