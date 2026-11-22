@@ -99,23 +99,19 @@ interface ToolDefinition {
 }
 ```
 
-### Installing an npm plugin
+### Enabling & Disabling Plugins
+
+You can toggle plugins directly in your `.env` without touching any code:
 
 ```bash
-npm install mevaplus-plugin-weather
+# Turn off specific plugins (comma-separated)
+DISABLED_PLUGINS=proposal
+
+# Or run only the plugins you want
+ENABLED_PLUGINS=remind,status
 ```
 
-Then in `src/plugins/index.ts`:
-
-```typescript
-import { weatherPlugin } from 'mevaplus-plugin-weather';
-
-export const plugins: Plugin[] = [
-  // ...
-  weatherPlugin,
-  chatPlugin, // keep last
-];
-```
+If neither variable is set, all built-in plugins are active by default. The core chat assistant (`chatPlugin`) is always guaranteed to load last.
 
 ---
 
@@ -197,4 +193,9 @@ sudo journalctl -u mevabot -f
 docker build -t mevabot .
 docker run -d --restart unless-stopped -v $(pwd)/data:/app/data --env-file .env --name mevabot mevabot
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Meba
+
 
