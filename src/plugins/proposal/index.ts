@@ -18,7 +18,13 @@ import type { Plugin } from '../../types/plugin.js';
  * Reads skills.md (or fallback skills.example.md) from the plugin directory or workspace.
  */
 function getSkillsMarkdown(): string {
-  // 1. Check workspace paths
+  // 1. Check data/ directory first (persisted on VPS across CI/CD deploys)
+  const dataPath = path.resolve(process.cwd(), 'data/skills.md');
+  if (fs.existsSync(dataPath)) {
+    return fs.readFileSync(dataPath, 'utf-8').trim();
+  }
+
+  // 2. Check workspace paths
   const workspacePath = path.resolve(process.cwd(), 'src/plugins/proposal/skills.md');
   if (fs.existsSync(workspacePath)) {
     return fs.readFileSync(workspacePath, 'utf-8').trim();

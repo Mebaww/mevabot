@@ -46,12 +46,14 @@ jobs:
 
       - name: Deploy files to VPS via rsync
         run: |
-          # Sync files to /opt/mevabot (preserving .env and data/ database)
+          # Sync files to /opt/mevabot (preserving .env, data/ database, and private skills.md)
           rsync -avz --delete \
             --exclude '.git' \
             --exclude '.env' \
             --exclude 'data' \
             --exclude 'node_modules' \
+            --exclude 'src/plugins/proposal/skills.md' \
+            --exclude 'skills.md' \
             ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/mevabot/
 
       - name: Install production dependencies & restart systemd
