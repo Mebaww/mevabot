@@ -86,6 +86,18 @@ export function parseProposalInput(rawInput: string): { jobText: string; suggest
   return { jobText: rawInput.trim() };
 }
 
+/**
+ * Extracts developer name and title from the loaded skills document or defaults to generic placeholders.
+ */
+function extractDeveloperProfile(doc: string): { name: string; title?: string } {
+  const nameMatch = doc.match(/-\s*Name:\s*([^(\n]+)/i);
+  const titleMatch = doc.match(/-\s*Title:\s*([^\n]+)/i);
+  return {
+    name: nameMatch ? nameMatch[1].trim() : 'the developer',
+    title: titleMatch ? titleMatch[1].trim() : undefined,
+  };
+}
+
 export interface GenerateProposalOptions {
   jobText: string;
   userId?: number;
@@ -94,7 +106,7 @@ export interface GenerateProposalOptions {
 }
 
 /**
- * Generates an Upwork proposal by executing Meba's assembly pipeline in `skills.md`.
+ * Generates an Upwork proposal by executing the assembly pipeline in `skills.md`.
  */
 export async function generateProposal(opts: GenerateProposalOptions): Promise<string> {
   const { jobText, userId } = opts;
@@ -104,7 +116,11 @@ export async function generateProposal(opts: GenerateProposalOptions): Promise<s
   const memoryContext = userId ? formatMemoryContext(userId) : '';
   const customProfile = process.env.PROPOSAL_PROFILE?.trim();
 
-  const systemPrompt = `You are a proposal writer for Meba Teshome, a full-stack developer on Upwork.
+  const devProfile = extractDeveloperProfile(skillsDoc);
+  const devName = process.env.DEVELOPER_NAME?.trim() || devProfile.name;
+  const roleDesc = devProfile.title ? `, a ${devProfile.title}` : '';
+
+  const systemPrompt = `You are a proposal writer for ${devName}${roleDesc} on Upwork.
 Your only job is to produce a finished, copy-paste-ready Upwork proposal — nothing else.
 
 HARD RULES:
@@ -112,12 +128,12 @@ HARD RULES:
 - Start the very first character of your output with the first character of the hook line.
 - Write with natural sentence flow. Each sentence should lead into the next — not feel like a list of fragments.
 - Follow the pipeline, formatting rules, and tone examples in the Framework document exactly.
-- If Meba provides personal suggestions, directions, or ideas (for the hook, portfolio, approach, tone, or CTA), prioritize and weave them directly into the proposal alongside his profile facts.`;
+- If ${devName} provides personal suggestions, directions, or ideas (for the hook, portfolio, approach, tone, or CTA), prioritize and weave them directly into the proposal alongside profile facts.`;
 
   const prompt = [
     skillsDoc ? `FRAMEWORK DOCUMENT (read carefully — follow every rule and pipeline step):\n"""\n${skillsDoc}\n"""\n` : '',
     customProfile ? `Additional Profile Context:\n${customProfile}\n` : '',
-    memoryContext ? `Stored Facts About Meba:\n${memoryContext}\n` : '',
+    memoryContext ? `Stored Facts About ${devName}:\n${memoryContext}\n` : '',
     'CLIENT JOB POST:',
     '"""',
     jobText,
@@ -125,11 +141,11 @@ HARD RULES:
     '',
     suggestion
       ? [
-          `MEBA'S PERSONAL SUGGESTIONS & DIRECTIVES:`,
+          `${devName.toUpperCase()}'S PERSONAL SUGGESTIONS & DIRECTIVES:`,
           `"""`,
           suggestion,
           `"""`,
-          `IMPORTANT: Actively incorporate Meba's suggestions above (e.g. specific hook angle, portfolio selection, scope focus, tone nuances, or closing CTA question) while maintaining the authentic peer tone and 5-section framework from skills.md. Blend Meba's ideas seamlessly into the finished proposal.`,
+          `IMPORTANT: Actively incorporate ${devName}'s suggestions above (e.g. specific hook angle, portfolio selection, scope focus, tone nuances, or closing CTA question) while maintaining the authentic peer tone and 5-section framework from skills.md. Blend ${devName}'s ideas seamlessly into the finished proposal.`,
           '',
         ].join('\n')
       : '',
@@ -239,7 +255,7 @@ export const proposalPlugin: Plugin = {
     {
       name: 'generate_upwork_proposal',
       description:
-        'Generates an Upwork proposal following Meba Teshome\'s framework in skills.md, actively incorporating any suggestions, hook ideas, or CTA directions from Meba.',
+        'Generates an Upwork proposal following the framework in skills.md, actively incorporating any suggestions, hook ideas, or CTA directions from the developer.',
       parameters: {
         type: 'object',
         properties: {
@@ -250,7 +266,7 @@ export const proposalPlugin: Plugin = {
           suggestion: {
             type: 'string',
             description:
-              'Optional suggestions, ideas, or directives from Meba (e.g., custom hook idea, portfolio project to highlight, scope priorities, or preferred CTA question)',
+              'Optional suggestions, ideas, or directives from the developer (e.g., custom hook idea, portfolio project to highlight, scope priorities, or preferred CTA question)',
           },
           skill_hint: {
             type: 'string',

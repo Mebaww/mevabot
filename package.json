@@ -1,9 +1,10 @@
 {
-  "name": "mevaplus",
+  "name": "mevabot",
   "version": "1.0.0",
   "description": "Single-owner Telegram AI assistant powered by Groq",
   "main": "dist/index.js",
   "type": "module",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

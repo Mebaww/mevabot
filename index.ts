@@ -6,8 +6,8 @@ import { logger }                    from './src/utils/logger.js';
 import { authMiddleware }            from './src/middleware/auth.js';
 import { loadPlugins, getCommands }  from './src/core/loader.js';
 import { plugins }                   from './src/plugins/index.js';
-
-import { replySafe }                   from './src/utils/format.js';
+import { db }                        from './src/services/db.js';
+import { replySafe }                 from './src/utils/format.js';
 
 const bot = new Bot(config.telegram.token);
 
@@ -35,7 +35,19 @@ bot.start({
 
 async function shutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}, shutting down`);
-  await bot.stop();
+  try {
+    await bot.stop();
+  } catch (err: unknown) {
+    logger.warn('Error stopping bot', { error: (err as Error).message });
+  }
+
+  try {
+    db.close();
+    logger.info('Database connection closed cleanly');
+  } catch (err: unknown) {
+    logger.warn('Error closing database', { error: (err as Error).message });
+  }
+
   process.exit(0);
 }
 

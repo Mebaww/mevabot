@@ -12,6 +12,7 @@ RUN mkdir -p /app/data && chown -R mevabot:mevabot /app/data
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src
 USER mevabot
 ENV NODE_ENV=production
 VOLUME ["/app/data"]

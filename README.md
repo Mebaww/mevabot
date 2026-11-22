@@ -7,7 +7,8 @@ Built with TypeScript and a plugin system that makes it easy to add, remove, or 
 
 - 💬 Conversational AI with persistent SQLite session memory (survives restarts)
 - 🧠 Two-tier memory system: automatic long-term user facts & profile persistence
-- ⏰ Reminders & alerts: `/remind`, `/reminders`, `/cancel_reminder` + autonomous AI scheduling
+- 💼 Upwork Proposal Generator: `/proposal` with 1-click copy, interactive drafts, custom hooks/CTAs, and custom skills framework
+- ⏰ Reminders & alerts: `/remind`, `/reminders`, `/cancel_reminder` + autonomous AI scheduling (supports clock times like `7:30 pm`)
 - 📊 Groq API usage: `/groq` real-time token quotas, rate limits, and reset countdowns
 - 🖥️ VPS status: `/status` — RAM, Disk, Uptime
 - 🔒 Owner-only: all messages from other users are silently dropped
@@ -121,9 +122,10 @@ export const plugins: Plugin[] = [
 ## Project layout
 
 ```
-mevaplus/
-├── index.ts                      Entry point — bot wiring
+mevabot/
+├── index.ts                      Entry point — bot wiring & lifecycle
 ├── tsconfig.json
+├── mevabot.service               Systemd unit with security sandboxing
 ├── scripts/
 │   └── new-plugin.ts             Plugin scaffolding script
 └── src/
@@ -139,17 +141,19 @@ mevaplus/
     │   ├── groq.ts               Groq client + model fallback + agentic tools
     │   ├── history.ts            Per-user persistent conversation history
     │   ├── memory.ts             Long-term user memories & background fact extraction
-    │   └── reminders.ts          Scheduled reminders & timer persistence (SQLite)
+    │   ├── reminders.ts          Scheduled reminders & natural time parser (SQLite)
+    │   └── userState.ts          In-memory state manager for multi-step prompts
     ├── utils/
     │   ├── format.ts             Telegram-safe HTML formatter with 1-tap copy
     │   └── logger.ts             Structured logger (JSON in prod)
     └── plugins/
         ├── index.ts              ← Plugin registry (edit to add plugins)
         ├── _example/             Annotated reference plugin (not registered)
-        ├── clear/                /clear command (resets active session)
+        ├── clear/                /clear and /cancel commands
         ├── memory/               /memories, /remember, /forget commands
         ├── status/               /status (VPS) and /groq (API limits) commands
-        ├── remind/               /remind, /reminders, /cancel_reminder commands + scheduler
+        ├── remind/               /remind, /reminders commands + scheduler
+        ├── proposal/             /proposal with 1-click copy & skills framework
         └── chat/                 Plain-text message handler + tool execution
 ```
 
@@ -157,26 +161,33 @@ mevaplus/
 
 ## VPS deployment (systemd)
 
-```bash
-# 1. Copy files to your server
-rsync -av --exclude=node_modules --exclude=.env --exclude=dist --exclude=data . user@vps:/opt/mevabot/
+Deployment is automated via GitHub Actions on every push to `main`. It compiles TypeScript on the GitHub runner and deploys only the production files to `/opt/mevabot`, keeping the VPS ultra-lightweight.
 
-# 2. On the server
-cd /opt/mevabot
-npm install
+### Manual VPS deployment
+
+```bash
+# 1. Compile locally
 npm run build
 
-# 3. Create a dedicated system user
+# 2. Copy compiled files to your server
+rsync -avz --exclude=node_modules --exclude=.env --exclude=data ./ user@vps:/opt/mevabot/
+
+# 3. On the server: install production dependencies only (never compile TS on a 1GB VPS)
+cd /opt/mevabot
+npm install --omit=dev
+
+# 4. Create a dedicated system user & set permissions
 sudo useradd -r -s /sbin/nologin mevabot
 sudo chown -R mevabot:mevabot /opt/mevabot
+sudo chmod 700 /opt/mevabot/data
 sudo chmod 600 /opt/mevabot/.env
 
-# 4. Install and enable the systemd unit
+# 5. Install and enable the systemd unit
 sudo cp mevabot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mevabot
 
-# 5. Check logs
+# 6. Check logs
 sudo journalctl -u mevabot -f
 ```
 
