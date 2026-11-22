@@ -105,6 +105,28 @@ export async function chat(messages: Message[], opts: ChatOptions = {}): Promise
         responseChoice = res.choices[0];
         if (!responseChoice) throw new Error('Empty choice returned from model');
 
+        const choiceMessage = responseChoice.message;
+        const hasTools = Boolean(choiceMessage.tool_calls && choiceMessage.tool_calls.length > 0 && tools);
+        const content = (choiceMessage.content || '').trim();
+
+        // If no tool call and no text content was produced, fall back to next model
+        if (!hasTools && !content) {
+          logger.warn(`Model ${model} returned empty content, falling back to next model`, {
+            model,
+            finish_reason: responseChoice.finish_reason,
+          });
+          continue;
+        }
+
+        // If truncated mid-sentence due to max_tokens limit
+        if (!hasTools && responseChoice.finish_reason === 'length' && content.length < 350) {
+          logger.warn(`Model ${model} cut off prematurely due to token length limit, falling back to next model`, {
+            model,
+            length: content.length,
+          });
+          continue;
+        }
+
         // Track live rate limit headers & token consumption
         const totalTokens = res.usage?.total_tokens ?? 0;
         latestUsage = {

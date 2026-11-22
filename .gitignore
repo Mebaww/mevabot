@@ -10,9 +10,9 @@ data/
 *.db-wal
 *.db-shm
 
-# Local / private plugins
-src/plugins/proposal/
+# Local / private plugins & profiles
 src/plugins/custom/
+src/plugins/proposal/skills.md
 
 # AI agent instructions
 GEMINI.md

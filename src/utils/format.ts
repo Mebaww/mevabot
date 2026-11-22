@@ -74,20 +74,62 @@ export function markdownToTelegramHtml(markdown: string): string {
 }
 
 /**
+ * Splits text into chunks respecting Telegram's 4,096 character limit.
+ * Prefers breaking at paragraph or line boundaries.
+ */
+export function splitMessage(text: string, maxLength = 3900): string[] {
+  if (text.length <= maxLength) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Try to find double newline (paragraph break)
+    let splitIdx = remaining.lastIndexOf('\n\n', maxLength);
+    if (splitIdx === -1 || splitIdx < maxLength / 2) {
+      // Fallback: single newline
+      splitIdx = remaining.lastIndexOf('\n', maxLength);
+    }
+    if (splitIdx === -1 || splitIdx < maxLength / 2) {
+      // Fallback: space
+      splitIdx = remaining.lastIndexOf(' ', maxLength);
+    }
+    if (splitIdx === -1) {
+      // Hard split
+      splitIdx = maxLength;
+    }
+
+    chunks.push(remaining.slice(0, splitIdx).trim());
+    remaining = remaining.slice(splitIdx).trim();
+  }
+
+  return chunks.filter(Boolean);
+}
+
+/**
  * Sends a message using Telegram HTML formatting.
- * If Telegram rejects the formatting (e.g. malformed tag), it automatically
- * falls back to plain text so the message NEVER fails to deliver.
+ * Automatically splits long messages into safe chunks to prevent 400 Bad Request errors.
+ * If Telegram rejects HTML formatting for a chunk, falls back to plain text.
  */
 export async function replySafe(ctx: Context, text: string): Promise<void> {
-  const formatted = markdownToTelegramHtml(text);
+  const chunks = splitMessage(text, 3900);
 
-  try {
-    await ctx.reply(formatted, { parse_mode: 'HTML' });
-  } catch (err: unknown) {
-    logger.warn('HTML parse failed, falling back to plain text', {
-      error: (err as Error).message,
-    });
-    // Fallback: send raw plain text
-    await ctx.reply(text);
+  for (const chunk of chunks) {
+    const formatted = markdownToTelegramHtml(chunk);
+
+    try {
+      await ctx.reply(formatted, { parse_mode: 'HTML' });
+    } catch (err: unknown) {
+      logger.warn('HTML parse failed, falling back to plain text', {
+        error: (err as Error).message,
+      });
+      // Fallback: send raw plain text chunk
+      await ctx.reply(chunk);
+    }
   }
 }

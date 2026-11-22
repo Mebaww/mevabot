@@ -10,18 +10,18 @@ import {
   snoozeReminder,
   getReminderById,
   parseDuration,
+  parseTargetTime,
+  parseReminderInput,
+  formatDueTime,
+  formatRelativeTime,
 } from '../../services/reminders.js';
+import { setPendingAction, clearPendingAction } from '../../services/userState.js';
 import { replySafe, markdownToTelegramHtml } from '../../utils/format.js';
 import { config } from '../../config.js';
 import { logger } from '../../utils/logger.js';
 import type { Plugin } from '../../types/plugin.js';
 
 let poller: NodeJS.Timeout | null = null;
-
-function formatDueTime(timestamp: number): string {
-  const d = new Date(timestamp);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 function startScheduler(bot: Bot): void {
   if (poller) return;
@@ -101,6 +101,33 @@ export const remindPlugin: Plugin = {
       await ctx.editMessageText('Reminder cancelled.').catch(() => {});
     });
 
+    // Cancel action when in interactive reminder flow
+    bot.callbackQuery('remind_cancel_to_menu', async (ctx) => {
+      clearPendingAction(ctx.from.id);
+      await ctx.answerCallbackQuery({ text: 'Cancelled' });
+      await ctx.editMessageText(
+        markdownToTelegramHtml('Action cancelled.\n\nType /help to see available commands or send a message to chat.'),
+        { parse_mode: 'HTML' },
+      ).catch(() => {});
+    });
+
+    // Show list action from prompt
+    bot.callbackQuery('remind_show_list', async (ctx) => {
+      const list = getPendingReminders(ctx.from.id);
+      await ctx.answerCallbackQuery();
+      if (list.length === 0) {
+        await ctx.editMessageText('No pending reminders.').catch(() => {});
+        return;
+      }
+      const lines = list
+        .map((r) => `• **${r.text}** — ${formatDueTime(r.due_at)}`)
+        .join('\n');
+      await ctx.editMessageText(
+        markdownToTelegramHtml(`**Pending Reminders**\n\n${lines}`),
+        { parse_mode: 'HTML' },
+      ).catch(() => {});
+    });
+
     logger.info('Reminder scheduler & actions registered');
   },
   commands: [
@@ -113,29 +140,44 @@ export const remindPlugin: Plugin = {
 
         const input = ctx.match?.trim();
         if (!input) {
-          await replySafe(ctx, 'Usage: `/remind <time> <text>` (e.g. `/remind 20m Check oven`)');
+          setPendingAction(userId, { type: 'awaiting_remind' });
+
+          const keyboard = new InlineKeyboard()
+            .text('❌ Cancel / Main Menu', 'remind_cancel_to_menu')
+            .text('📋 Active Reminders', 'remind_show_list');
+
+          await ctx.reply(
+            markdownToTelegramHtml(
+              '⏰ **Set a Reminder**\n\n' +
+              'Tell me what to remind you about and when.\n\n' +
+              '**Examples:**\n' +
+              '• `7:30 pm Call John`\n' +
+              '• `tomorrow at 10am Team standup`\n' +
+              '• `20m Check oven`'
+            ),
+            {
+              parse_mode: 'HTML',
+              reply_markup: keyboard,
+            },
+          );
           return;
         }
 
-        const match = input.match(/^(\d+\s*(?:s|sec|secs|m|min|mins|h|hr|hrs|d|days?))\s+(.+)$/i);
-        if (!match) {
-          await replySafe(ctx, 'Could not parse time. Example: `/remind 30m Check server`');
+        const parsed = parseReminderInput(input);
+        if (!parsed) {
+          await replySafe(
+            ctx,
+            'Could not understand the time or task.\n\n' +
+            '**Examples:**\n' +
+            '• `/remind 7:30 pm Call John`\n' +
+            '• `/remind tomorrow at 10am Team standup`\n' +
+            '• `/remind 20m Check server`',
+          );
           return;
         }
 
-        const durationStr = match[1];
-        const reminderText = match[2].trim();
-        const durationMs = parseDuration(durationStr);
-
-        if (!durationMs || durationMs < 5000) {
-          await replySafe(ctx, 'Reminder duration must be at least 5 seconds.');
-          return;
-        }
-
-        const dueAt = Date.now() + durationMs;
-        addReminder(userId, reminderText, dueAt);
-
-        await replySafe(ctx, `Reminder set for ${formatDueTime(dueAt)} (in ${durationStr}).`);
+        addReminder(userId, parsed.text, parsed.dueAt);
+        await replySafe(ctx, `Reminder set for **${parsed.dueTimeStr}** (in ${parsed.relativeStr}): ${parsed.text}`);
       },
     },
     {
@@ -174,7 +216,8 @@ export const remindPlugin: Plugin = {
   tools: [
     {
       name: 'create_reminder',
-      description: 'Schedule a future reminder for the user. Specify task text and delay in seconds from now.',
+      description:
+        'Schedule a future reminder for the user. Specify task text and either a target time string (e.g. "7:30 PM", "tomorrow 10:00 AM", "20m") or delay_seconds.',
       parameters: {
         type: 'object',
         properties: {
@@ -182,22 +225,39 @@ export const remindPlugin: Plugin = {
             type: 'string',
             description: 'The reminder task description',
           },
+          time: {
+            type: 'string',
+            description: 'Target time or relative duration (e.g. "7:30 PM", "19:30", "tomorrow at 10:00 AM", "20m", "2h")',
+          },
           delay_seconds: {
             type: 'number',
-            description: 'Number of seconds from now when the reminder should trigger (e.g. 600 for 10m, 3600 for 1 hour)',
+            description: 'Optional delay in seconds from now (alternative to time)',
           },
         },
-        required: ['text', 'delay_seconds'],
+        required: ['text'],
       },
       async execute(args) {
-        const text = String(args.text || 'Reminder');
-        const delaySeconds = Math.max(5, Number(args.delay_seconds || 60));
-        const dueAt = Date.now() + delaySeconds * 1000;
+        const text = String(args.text || 'Reminder').trim();
+        let dueAt: number;
+
+        if (args.time) {
+          const parsedTimestamp = parseTargetTime(String(args.time));
+          if (parsedTimestamp) {
+            dueAt = parsedTimestamp;
+          } else {
+            const delay = Math.max(5, Number(args.delay_seconds || 60));
+            dueAt = Date.now() + delay * 1000;
+          }
+        } else {
+          const delay = Math.max(5, Number(args.delay_seconds || 60));
+          dueAt = Date.now() + delay * 1000;
+        }
+
         addReminder(config.telegram.ownerId, text, dueAt);
 
         const timeStr = formatDueTime(dueAt);
-        const mins = Math.round(delaySeconds / 60);
-        const relativeStr = mins >= 60 ? `${Math.round(mins / 60)}h` : `${mins}m`;
+        const diffMs = dueAt - Date.now();
+        const relativeStr = formatRelativeTime(diffMs);
 
         return JSON.stringify({
           success: true,
