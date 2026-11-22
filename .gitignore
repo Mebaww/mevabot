@@ -13,6 +13,7 @@ data/
 # Local / private plugins & profiles
 src/plugins/custom/
 src/plugins/proposal/skills.md
+scripts/upload-skills.sh
 
 # AI agent instructions
 GEMINI.md
