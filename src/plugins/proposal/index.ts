@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { InlineKeyboard, type Context } from 'grammy';
-import { chat, GroqChatError } from '../../services/groq.js';
+import { chat } from '../../services/groq.js';
 import { formatMemoryContext } from '../../services/memory.js';
 import { setPendingAction, clearPendingAction } from '../../services/userState.js';
 import { replySafe, markdownToTelegramHtml } from '../../utils/format.js';
@@ -420,11 +420,7 @@ export const proposalPlugin: Plugin = {
           await replySafe(ctx, `\`\`\`\n${proposal}\n\`\`\``);
         } catch (err: unknown) {
           logger.error('Proposal generation failed', { message: (err as Error).message });
-          await ctx.reply(
-            err instanceof GroqChatError && err.rateLimited
-              ? 'Groq is rate-limiting proposal generation right now. Give it about 30 seconds and try again.'
-              : 'Could not generate a proposal right now. Try again in a moment.',
-          );
+          await ctx.reply('Could not generate a proposal right now. Try again in a moment.');
         }
       },
     },
