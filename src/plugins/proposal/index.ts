@@ -5,14 +5,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { InlineKeyboard } from 'grammy';
-import { chat } from '../../services/groq.js';
+import { InlineKeyboard, type Context } from 'grammy';
+import { chat, GroqChatError } from '../../services/groq.js';
 import { formatMemoryContext } from '../../services/memory.js';
 import { setPendingAction, clearPendingAction } from '../../services/userState.js';
 import { replySafe, markdownToTelegramHtml } from '../../utils/format.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config.js';
-import type { Plugin } from '../../types/plugin.js';
+import type { CommandHandler, Plugin } from '../../types/plugin.js';
 
 /**
  * Reads skills.md (or fallback skills.example.md) from the plugin directory or workspace.
@@ -87,16 +87,198 @@ export function parseProposalInput(rawInput: string): { jobText: string; suggest
 }
 
 /**
+ * Splits YAML frontmatter (name/version/description) from the Markdown body.
+ * Skill files can either be a plain framework document or frontmatter + body.
+ */
+function splitSkillsDoc(doc: string): { frontmatter: Record<string, string>; body: string } {
+  const match = doc.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { frontmatter: {}, body: doc };
+
+  const frontmatter: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const entry = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!entry) continue;
+    let value = entry[2].trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    frontmatter[entry[1].toLowerCase()] = value;
+  }
+
+  return { frontmatter, body: doc.slice(match[0].length) };
+}
+
+/**
  * Extracts developer name and title from the loaded skills document or defaults to generic placeholders.
  */
 function extractDeveloperProfile(doc: string): { name: string; title?: string } {
-  const nameMatch = doc.match(/-\s*Name:\s*([^(\n]+)/i);
-  const titleMatch = doc.match(/-\s*Title:\s*([^\n]+)/i);
+  const { body } = splitSkillsDoc(doc);
+  const nameMatch = body.match(/^\s*(?:-\s*)?Name:\s*([^(\n]+)/im);
+  const titleMatch = body.match(/^\s*(?:-\s*)?(?:Profile\s+)?Title:\s*([^\n]+)/im);
   return {
     name: nameMatch ? nameMatch[1].trim() : 'the developer',
     title: titleMatch ? titleMatch[1].trim() : undefined,
   };
 }
+
+export interface ProposalSkillsOverview {
+  name?: string;
+  title?: string;
+  version?: string;
+  projects: string[];
+  hookTypes: Array<{ key: string; label: string }>;
+  pipeline: string[];
+}
+
+const TITLE_ACRONYMS = new Set([
+  'ai',
+  'api',
+  'cms',
+  'cta',
+  'faq',
+  'mvp',
+  'saas',
+  'seo',
+  'ui',
+  'ux',
+  'vsl',
+]);
+
+const TITLE_SMALL_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'but',
+  'by',
+  'for',
+  'from',
+  'in',
+  'into',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'with',
+]);
+
+function titleCase(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      if (TITLE_ACRONYMS.has(lower)) return word.toUpperCase();
+      if (TITLE_SMALL_WORDS.has(lower) && index > 0) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+/**
+ * Extracts the high-level structure of skills.md (profile, version, portfolio
+ * projects, hook types, and pipeline stages) so the bot can show a compact
+ * overview instead of dumping the entire framework document into chat.
+ */
+export function parseSkillsOverview(doc: string): ProposalSkillsOverview {
+  const { frontmatter, body } = splitSkillsDoc(doc);
+  const profile = extractDeveloperProfile(doc);
+
+  // Prefer YAML frontmatter (`version: "2.5"`), fall back to a heading like `(v2.4 - Streamlined)`.
+  const frontmatterVersion = frontmatter.version?.trim().replace(/^v/i, '');
+  const headingMatch = (body.match(/^#\s+(.+)$/m)?.[1] ?? '').match(
+    /\(v?(\d+(?:\.\d+)*)(?:\s*[-–—]\s*([^)]+))?\)/i,
+  );
+  const version = frontmatterVersion
+    ? `v${frontmatterVersion}`
+    : headingMatch
+      ? `v${headingMatch[1]}${headingMatch[2] ? ` — ${headingMatch[2].trim()}` : ''}`
+      : undefined;
+
+  const projects = [...body.matchAll(/^\s*PROJECT\s+\d+\s*:\s*(.+?)\s*$/gm)].map((m) => m[1]);
+
+  const hookTypes: Array<{ key: string; label: string }> = [];
+  const seenHooks = new Set<string>();
+  for (const match of body.matchAll(/^\s*(?:[-*]\s*)?TYPE\s+([A-Z])\s*\(([^)]*)\)/gim)) {
+    if (seenHooks.has(match[1])) continue;
+    seenHooks.add(match[1]);
+    hookTypes.push({ key: match[1], label: match[2].trim() });
+  }
+  hookTypes.sort((a, b) => a.key.localeCompare(b.key));
+
+  const pipeline = [
+    ...body.matchAll(/^\s*#{2,4}\s*(?:Section|Step)\s+(\d+[A-Za-z]?)\s*:\s*(.+?)\s*$/gim),
+  ].map((m) => `${m[1]}. ${titleCase(m[2].replace(/\s*\(.*$/, '').trim())}`);
+
+  return { ...profile, version, projects, hookTypes, pipeline };
+}
+
+/**
+ * Builds the compact /upwork_skill overview message.
+ */
+export function formatSkillsOverview(doc: string): string {
+  const overview = parseSkillsOverview(doc);
+  const lines: string[] = [];
+
+  const versionSuffix = overview.version ? ` ${overview.version}` : '';
+  lines.push(`**Upwork Skill${versionSuffix}**`);
+  if (overview.name) lines.push(overview.name);
+  if (overview.title) lines.push(overview.title);
+  lines.push('');
+
+  lines.push('One skill, matched to each job. Pipeline:');
+  if (overview.pipeline.length) {
+    for (const stage of overview.pipeline) lines.push(stage);
+  } else {
+    lines.push('• Hook → Proof → Scope → Breath → CTA');
+  }
+  lines.push('');
+
+  if (overview.projects.length) {
+    lines.push(`**Portfolio proof — pick 1 of ${overview.projects.length}**`);
+    for (const project of overview.projects) lines.push(`• ${project}`);
+    lines.push('');
+  }
+
+  if (overview.hookTypes.length) {
+    lines.push(`**Hook types — auto-matched (${overview.hookTypes.length})**`);
+    for (const hook of overview.hookTypes) lines.push(`• ${hook.key} — ${hook.label}`);
+    lines.push('');
+  }
+
+  lines.push('Use `/proposal [suggestion] <job post>` to write one.');
+  lines.push('Send `/upwork_skill full` for the complete framework.');
+
+  return lines.join('\n');
+}
+
+async function sendSkillsOverview(ctx: Context): Promise<void> {
+  const doc = getSkillsMarkdown();
+  if (!doc) {
+    await replySafe(ctx, 'No `skills.md` file found.');
+    return;
+  }
+
+  await replySafe(ctx, formatSkillsOverview(doc));
+}
+
+/** Compact skill version (e.g. "v2.4") for the Telegram command menu. */
+const skillVersion = parseSkillsOverview(getSkillsMarkdown()).version?.split(' — ')[0];
+
+/** `/upwork_skill` — compact skill overview. */
+const proposalSkillsHandler: CommandHandler = async (ctx) => {
+  if (/^(?:full|raw)$/i.test(ctx.match?.trim() ?? '')) {
+    const doc = getSkillsMarkdown();
+    await replySafe(ctx, doc || 'No `skills.md` file found.');
+    return;
+  }
+  await sendSkillsOverview(ctx);
+};
 
 export interface GenerateProposalOptions {
   jobText: string;
@@ -178,9 +360,8 @@ export const proposalPlugin: Plugin = {
 
     // 1-Tap "Skills" action from proposal prompt
     bot.callbackQuery('proposal_show_skills', async (ctx) => {
-      const doc = getSkillsMarkdown();
       await ctx.answerCallbackQuery();
-      await replySafe(ctx, doc ? `**Skills Framework (skills.md)**\n\n${doc}` : 'No `skills.md` found.');
+      await sendSkillsOverview(ctx);
     });
   },
   commands: [
@@ -214,9 +395,14 @@ export const proposalPlugin: Plugin = {
           return;
         }
 
-        if (rawInput === 'skills' || rawInput === 'list') {
-          const doc = getSkillsMarkdown();
-          await replySafe(ctx, doc || 'No `skills.md` found.');
+        const skillsMatch = rawInput.match(/^(?:skills|list)(?:\s+(full|raw))?$/i);
+        if (skillsMatch) {
+          if (skillsMatch[1]) {
+            const doc = getSkillsMarkdown();
+            await replySafe(ctx, doc || 'No `skills.md` found.');
+          } else {
+            await sendSkillsOverview(ctx);
+          }
           return;
         }
 
@@ -234,21 +420,18 @@ export const proposalPlugin: Plugin = {
           await replySafe(ctx, `\`\`\`\n${proposal}\n\`\`\``);
         } catch (err: unknown) {
           logger.error('Proposal generation failed', { message: (err as Error).message });
-          await ctx.reply('Could not generate a proposal right now. Try again in a moment.');
+          await ctx.reply(
+            err instanceof GroqChatError && err.rateLimited
+              ? 'Groq is rate-limiting proposal generation right now. Give it about 30 seconds and try again.'
+              : 'Could not generate a proposal right now. Try again in a moment.',
+          );
         }
       },
     },
     {
-      command: 'proposal_skills',
-      description: 'View current skills.md content',
-      async handler(ctx) {
-        const doc = getSkillsMarkdown();
-        if (!doc) {
-          await replySafe(ctx, 'No `skills.md` file found.');
-          return;
-        }
-        await replySafe(ctx, `**Skills Framework (skills.md)**\n\n${doc}`);
-      },
+      command: 'upwork_skill',
+      description: `Upwork skill overview${skillVersion ? ` (${skillVersion})` : ''}`,
+      handler: proposalSkillsHandler,
     },
   ],
   tools: [

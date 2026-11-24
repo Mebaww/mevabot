@@ -7,7 +7,7 @@ Built with TypeScript and a plugin system that makes it easy to add, remove, or 
 
 - 💬 Conversational AI with persistent SQLite session memory (survives restarts)
 - 🧠 Two-tier memory system: automatic long-term user facts & profile persistence
-- 💼 Upwork Proposal Generator: `/proposal` with 1-click copy, interactive drafts, custom hooks/CTAs, and custom skills framework
+- 💼 Upwork Proposal Generator: `/proposal` with 1-click copy, interactive drafts, custom hooks/CTAs, plus `/upwork_skill` for a versioned skill overview
 - ⏰ Reminders & alerts: `/remind`, `/reminders`, `/cancel_reminder` + autonomous AI scheduling (supports clock times like `7:30 pm`)
 - 📊 Groq API usage: `/groq` real-time token quotas, rate limits, and reset countdowns
 - 🖥️ VPS status: `/status` — RAM, Disk, Uptime
